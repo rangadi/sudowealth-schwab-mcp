@@ -13,6 +13,12 @@ interface PendingBatch {
 	resolve: (response: Response) => void
 }
 
+interface PendingRequest {
+	batch: PendingBatch
+	/** The client's original JSON-RPC id, restored on the response. */
+	originalId: string | number
+}
+
 /**
  * Streamable HTTP server transport (2025-03-26+ MCP spec revision) for
  * Cloudflare Workers. Unlike the reference SDK transport, this speaks the
@@ -24,10 +30,16 @@ interface PendingBatch {
  * server never pushes unsolicited server->client messages, so the optional
  * standalone GET/SSE stream and session-termination DELETE are not
  * implemented (both are legal to omit per spec, returning 405).
+ *
+ * One transport instance may serve concurrent MCP sessions (the Durable
+ * Object is shared per user), and independent clients can pick colliding
+ * JSON-RPC ids. Request ids are therefore rewritten to a transport-unique
+ * value before dispatch and restored on the response.
  */
 export class StreamableHttpEdgeTransport implements Transport {
 	private closed = false
-	private readonly pendingByRequestId = new Map<string, PendingBatch>()
+	private nextInternalId = 0
+	private readonly pendingByInternalId = new Map<string, PendingRequest>()
 
 	sessionId: string
 	onclose?: () => void
@@ -78,11 +90,9 @@ export class StreamableHttpEdgeTransport implements Transport {
 			return new Response('Invalid JSON-RPC message', { status: 400 })
 		}
 
-		const requestIds = messages
-			.filter(isJSONRPCRequest)
-			.map((message) => String(message.id))
+		const requests = messages.filter(isJSONRPCRequest)
 
-		if (requestIds.length === 0) {
+		if (requests.length === 0) {
 			// Only notifications/responses from the client: nothing to reply with.
 			for (const message of messages) this.onmessage?.(message)
 			return new Response(null, { status: 202 })
@@ -90,11 +100,19 @@ export class StreamableHttpEdgeTransport implements Transport {
 
 		const responsePromise = new Promise<Response>((resolve) => {
 			const batch: PendingBatch = {
-				remaining: new Set(requestIds),
+				remaining: new Set(),
 				responses: [],
 				resolve,
 			}
-			for (const id of requestIds) this.pendingByRequestId.set(id, batch)
+			for (const message of requests) {
+				const internalId = `i${this.nextInternalId++}`
+				this.pendingByInternalId.set(internalId, {
+					batch,
+					originalId: message.id,
+				})
+				batch.remaining.add(internalId)
+				message.id = internalId
+			}
 		})
 
 		for (const message of messages) this.onmessage?.(message)
@@ -115,24 +133,25 @@ export class StreamableHttpEdgeTransport implements Transport {
 	async close(): Promise<void> {
 		if (this.closed) return
 		this.closed = true
-		for (const batch of this.pendingByRequestId.values()) {
-			batch.resolve(new Response(null, { status: 503 }))
+		for (const pending of this.pendingByInternalId.values()) {
+			pending.batch.resolve(new Response(null, { status: 503 }))
 		}
-		this.pendingByRequestId.clear()
+		this.pendingByInternalId.clear()
 		this.onclose?.()
 	}
 
 	async send(message: JSONRPCMessage): Promise<void> {
-		const id = 'id' in message ? message.id : undefined
-		if (id === undefined) return // server-initiated notification; no open stream to deliver it on
+		if (!('id' in message)) return // server-initiated notification; no open stream to deliver it on
 
-		const key = String(id)
-		const batch = this.pendingByRequestId.get(key)
-		if (!batch) return // unmatched or late response; nothing to resolve
+		const key = String(message.id)
+		const pending = this.pendingByInternalId.get(key)
+		if (!pending) return // unmatched or late response; nothing to resolve
 
+		const { batch, originalId } = pending
+		message.id = originalId
 		batch.responses.push(message)
 		batch.remaining.delete(key)
-		this.pendingByRequestId.delete(key)
+		this.pendingByInternalId.delete(key)
 
 		if (batch.remaining.size === 0) {
 			const body = batch.responses.length === 1 ? batch.responses[0] : batch.responses

@@ -340,8 +340,13 @@ export class MyMCP extends DurableObject<Env> {
 
 	/** POST /mcp - Streamable HTTP transport (current MCP spec) */
 	async onMcpPost(request: Request): Promise<Response> {
-		this.mcpLogger.info('Streamable HTTP request received')
-		await this.onReconnect()
+		this.mcpLogger.debug('Streamable HTTP request received')
+		// _init() fully initializes a cold DO; the token manager refreshes
+		// tokens on demand per API call, so warm requests need no recovery
+		// dance here (unlike the long-lived legacy SSE connections).
+		if (!this.tokenManager) {
+			await this.onReconnect()
+		}
 		if (!this.streamableTransport) {
 			this.streamableTransport = new StreamableHttpEdgeTransport(
 				this.ctx.id.toString(),
@@ -354,7 +359,11 @@ export class MyMCP extends DurableObject<Env> {
 	/** DELETE /mcp - explicit session termination */
 	async onMcpDelete(): Promise<Response> {
 		if (this.streamableTransport) {
-			return await this.streamableTransport.handleDeleteRequest()
+			const response = await this.streamableTransport.handleDeleteRequest()
+			// The DO is shared per user; drop the closed transport so the next
+			// request gets a fresh one instead of 503s forever.
+			this.streamableTransport = undefined
+			return response
 		}
 		return new Response(null, { status: 200 })
 	}
@@ -387,13 +396,41 @@ function propsFromExecutionCtx(ctx: unknown): MyMCPProps {
 
 const mcpApp = new Hono<{ Bindings: Env }>()
 
+/**
+ * Route a request to its Durable Object. A client that echoes our
+ * Mcp-Session-Id header is routed straight back to its DO. Without the
+ * header (claude.ai does not echo it), derive a stable per-user DO from the
+ * OAuth grant's identity so repeat requests reuse a warm, initialized
+ * instance instead of paying full init on a fresh one each time.
+ */
+function mcpObjectFor(
+	env: Env,
+	sessionId: string | undefined,
+	props: MyMCPProps,
+) {
+	const ns = env.MCP_OBJECT
+	if (sessionId) {
+		try {
+			return ns.get(ns.idFromString(sessionId))
+		} catch {
+			return null // malformed session id from client
+		}
+	}
+	const name = props.schwabUserId
+		? `user:${props.schwabUserId}`
+		: props.clientId
+			? `client:${props.clientId}`
+			: null
+	return ns.get(name ? ns.idFromName(name) : ns.newUniqueId())
+}
+
 mcpApp.post(API_ENDPOINTS.MCP, cors(), async (c) => {
-	const sessionId = c.req.header('Mcp-Session-Id')
-	const id = sessionId
-		? c.env.MCP_OBJECT.idFromString(sessionId)
-		: c.env.MCP_OBJECT.newUniqueId()
-	const object = c.env.MCP_OBJECT.get(id)
-	await object._init(propsFromExecutionCtx(c.executionCtx))
+	const props = propsFromExecutionCtx(c.executionCtx)
+	const object = mcpObjectFor(c.env, c.req.header('Mcp-Session-Id'), props)
+	if (!object) {
+		return new Response('Invalid Mcp-Session-Id', { status: 400 })
+	}
+	await object._init(props)
 	return await object.onMcpPost(c.req.raw)
 })
 
@@ -406,7 +443,10 @@ mcpApp.delete(API_ENDPOINTS.MCP, cors(), async (c) => {
 	if (!sessionId) {
 		return new Response('Missing Mcp-Session-Id', { status: 400 })
 	}
-	const object = c.env.MCP_OBJECT.get(c.env.MCP_OBJECT.idFromString(sessionId))
+	const object = mcpObjectFor(c.env, sessionId, {})
+	if (!object) {
+		return new Response('Invalid Mcp-Session-Id', { status: 400 })
+	}
 	return await object.onMcpDelete()
 })
 
