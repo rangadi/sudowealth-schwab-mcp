@@ -201,7 +201,7 @@ export class MyMCP extends DurableObject<Env> {
 					enableLogging: true,
 					logLevel:
 						this.validatedConfig.ENVIRONMENT === 'production'
-							? 'warn'
+							? 'info'
 							: 'debug',
 				},
 				auth: this.tokenManager,
