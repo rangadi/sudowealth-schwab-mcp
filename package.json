@@ -27,7 +27,7 @@
     "wrangler": "^4.18.0"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.0.5",
+    "@cloudflare/workers-oauth-provider": "^0.8.1",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@sudowealth/schwab-api": "^2.1.0",
     "hono": "^4.7.11",

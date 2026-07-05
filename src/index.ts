@@ -335,4 +335,5 @@ export default new OAuthProvider({
 	defaultHandler: SchwabHandler as any, // Cast remains
 	authorizeEndpoint: API_ENDPOINTS.AUTHORIZE,
 	tokenEndpoint: API_ENDPOINTS.TOKEN,
+	clientRegistrationEndpoint: "/register", // This was missing in origin repo.
 })
