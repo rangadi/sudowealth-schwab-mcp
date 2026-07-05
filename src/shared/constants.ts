@@ -35,7 +35,11 @@ export const LOGGER_CONTEXTS = {
  * API Endpoints
  */
 export const API_ENDPOINTS = {
+	/** Streamable HTTP (current MCP spec transport) */
+	MCP: '/mcp',
+	/** Legacy HTTP+SSE transport, kept for clients that haven't migrated */
 	SSE: '/sse',
+	SSE_MESSAGE: '/sse/message',
 	AUTHORIZE: '/authorize',
 	TOKEN: '/token',
 	CALLBACK: '/callback',

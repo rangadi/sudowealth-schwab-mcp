@@ -8,7 +8,9 @@ import {
 	type SchwabApiLogger,
 	type TokenData,
 } from '@sudowealth/schwab-api'
-import { DurableMCP } from 'workers-mcp'
+import { DurableObject } from 'cloudflare:workers'
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { type ValidatedEnv } from '../types/env'
 import { SchwabHandler, initializeSchwabAuthClient } from './auth'
 import { getConfig } from './config'
@@ -26,6 +28,8 @@ import { logger, buildLogger, type PinoLogLevel } from './shared/log'
 import { logOnlyInDevelopment } from './shared/secureLogger'
 import { createTool, toolError, toolSuccess } from './shared/toolBuilder'
 import { allToolSpecs, type ToolSpec } from './tools'
+import { SseEdgeTransport } from './transports/sseEdgeTransport'
+import { StreamableHttpEdgeTransport } from './transports/streamableHttpTransport'
 
 /**
  * DO props now contain only IDs needed for token key derivation
@@ -38,7 +42,11 @@ type MyMCPProps = {
 	clientId?: string
 }
 
-export class MyMCP extends DurableMCP<MyMCPProps, Env> {
+export class MyMCP extends DurableObject<Env> {
+	props: MyMCPProps = {}
+	private initRun = false
+	private sseTransport?: SseEdgeTransport
+	private streamableTransport?: StreamableHttpEdgeTransport
 	private tokenManager!: EnhancedTokenManager
 	private client!: SchwabApiClient
 	private validatedConfig!: ValidatedEnv
@@ -48,6 +56,14 @@ export class MyMCP extends DurableMCP<MyMCPProps, Env> {
 		name: APP_NAME,
 		version: '0.0.1',
 	})
+
+	async _init(props: MyMCPProps) {
+		this.props = props
+		if (!this.initRun) {
+			this.initRun = true
+			await this.init()
+		}
+	}
 
 	async init() {
 		try {
@@ -322,18 +338,101 @@ export class MyMCP extends DurableMCP<MyMCPProps, Env> {
 		}
 	}
 
-	async onSSE(event: any) {
+	/** POST /mcp - Streamable HTTP transport (current MCP spec) */
+	async onMcpPost(request: Request): Promise<Response> {
+		this.mcpLogger.info('Streamable HTTP request received')
+		await this.onReconnect()
+		if (!this.streamableTransport) {
+			this.streamableTransport = new StreamableHttpEdgeTransport(
+				this.ctx.id.toString(),
+			)
+			await this.server.connect(this.streamableTransport)
+		}
+		return await this.streamableTransport.handleRequest(request)
+	}
+
+	/** DELETE /mcp - explicit session termination */
+	async onMcpDelete(): Promise<Response> {
+		if (this.streamableTransport) {
+			return await this.streamableTransport.handleDeleteRequest()
+		}
+		return new Response(null, { status: 200 })
+	}
+
+	/** GET /sse - legacy HTTP+SSE transport, kept for clients that haven't migrated */
+	async onSSE(): Promise<Response> {
 		this.mcpLogger.info('SSE connection established or reconnected')
 		await this.onReconnect()
-		return await super.onSSE(event)
+		this.sseTransport = new SseEdgeTransport(
+			API_ENDPOINTS.SSE_MESSAGE,
+			this.ctx.id.toString(),
+		)
+		await this.server.connect(this.sseTransport)
+		return this.sseTransport.sseResponse
+	}
+
+	/** POST /sse/message - companion to the legacy SSE transport */
+	async onSSEMessage(request: Request): Promise<Response> {
+		if (!this.sseTransport) {
+			return new Response('SSE connection not established', { status: 500 })
+		}
+		return await this.sseTransport.handlePostMessage(request)
 	}
 }
 
+/** OAuthProvider attaches the authenticated grant's props to the execution context at runtime. */
+function propsFromExecutionCtx(ctx: unknown): MyMCPProps {
+	return (ctx as { props: MyMCPProps }).props
+}
+
+const mcpApp = new Hono<{ Bindings: Env }>()
+
+mcpApp.post(API_ENDPOINTS.MCP, cors(), async (c) => {
+	const sessionId = c.req.header('Mcp-Session-Id')
+	const id = sessionId
+		? c.env.MCP_OBJECT.idFromString(sessionId)
+		: c.env.MCP_OBJECT.newUniqueId()
+	const object = c.env.MCP_OBJECT.get(id)
+	await object._init(propsFromExecutionCtx(c.executionCtx))
+	return await object.onMcpPost(c.req.raw)
+})
+
+mcpApp.get(API_ENDPOINTS.MCP, cors(), async () => {
+	return new Response(null, { status: 405, headers: { Allow: 'POST' } })
+})
+
+mcpApp.delete(API_ENDPOINTS.MCP, cors(), async (c) => {
+	const sessionId = c.req.header('Mcp-Session-Id')
+	if (!sessionId) {
+		return new Response('Missing Mcp-Session-Id', { status: 400 })
+	}
+	const object = c.env.MCP_OBJECT.get(c.env.MCP_OBJECT.idFromString(sessionId))
+	return await object.onMcpDelete()
+})
+
+mcpApp.get(API_ENDPOINTS.SSE, cors(), async (c) => {
+	const object = c.env.MCP_OBJECT.get(c.env.MCP_OBJECT.newUniqueId())
+	await object._init(propsFromExecutionCtx(c.executionCtx))
+	return await object.onSSE()
+})
+
+mcpApp.post(API_ENDPOINTS.SSE_MESSAGE, cors(), async (c) => {
+	const sessionId = c.req.query('sessionId')
+	if (!sessionId) {
+		return new Response(
+			'Missing sessionId. Expected GET to /sse to initiate one',
+			{ status: 400 },
+		)
+	}
+	const object = c.env.MCP_OBJECT.get(c.env.MCP_OBJECT.idFromString(sessionId))
+	return await object.onSSEMessage(c.req.raw)
+})
+
 export default new OAuthProvider({
-	apiRoute: API_ENDPOINTS.SSE,
-	apiHandler: MyMCP.mount(API_ENDPOINTS.SSE) as any, // Cast remains due to library typing
+	apiRoute: [API_ENDPOINTS.MCP, API_ENDPOINTS.SSE, API_ENDPOINTS.SSE_MESSAGE],
+	apiHandler: mcpApp as any, // Hono app satisfies the { fetch } handler shape OAuthProvider expects
 	defaultHandler: SchwabHandler as any, // Cast remains
 	authorizeEndpoint: API_ENDPOINTS.AUTHORIZE,
 	tokenEndpoint: API_ENDPOINTS.TOKEN,
-	clientRegistrationEndpoint: "/register", // This was missing in origin repo.
+	clientRegistrationEndpoint: '/register', // This was missing in origin repo.
 })
