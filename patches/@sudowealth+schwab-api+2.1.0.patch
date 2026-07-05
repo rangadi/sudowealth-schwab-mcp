@@ -1,0 +1,23 @@
+diff --git a/node_modules/@sudowealth/schwab-api/dist/src/market-data/options/schema.js b/node_modules/@sudowealth/schwab-api/dist/src/market-data/options/schema.js
+index 5fd8032..515114a 100644
+--- a/node_modules/@sudowealth/schwab-api/dist/src/market-data/options/schema.js
++++ b/node_modules/@sudowealth/schwab-api/dist/src/market-data/options/schema.js
+@@ -39,7 +39,7 @@ export const OptionDeliverablesSchema = z.object({
+         .describe('Units of the deliverable'),
+     currencyType: z
+         .string()
+-        .optional()
++        .nullish()
+         .describe('Currency type of the deliverable'),
+ });
+ export const UnderlyingSchema = z.object({
+@@ -68,7 +68,8 @@ export const UnderlyingSchema = z.object({
+         .optional()
+         .describe('Is the quote delayed for the underlying'),
+     description: z.string().optional().describe('Description of the underlying'),
+-    exchangeName: UnderlyingExchangeEnum.optional().describe('Exchange of the underlying'),
++    // Patched: Schwab returns values outside the documented enum (e.g. 'NASDAQ')
++    exchangeName: z.string().optional().describe('Exchange of the underlying'),
+     fiftyTwoWeekHigh: z
+         .number()
+         .optional()
