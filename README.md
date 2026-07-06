@@ -343,6 +343,38 @@ Connect to `http://localhost:8788/mcp` using the MCP Inspector for testing
 8. **Cookie Encryption**: Client approval state encrypted with AES-256
 9. **Secret Redaction**: Automatic masking of sensitive data in logs
 
+### Token Lifecycle & Re-authentication
+
+The server sits between two independent OAuth relationships, each with its
+own tokens:
+
+| Token | Held by | Lifetime | Renewed by |
+| --- | --- | --- | --- |
+| MCP access token | MCP client (claude.ai, ChatGPT, ...) | 1 hour | Client, silently, via its refresh token at `/token` |
+| MCP refresh token | MCP client | until revoked | Rotated on each refresh |
+| Schwab access token | This worker (encrypted in KV) | ~30 minutes | Worker, automatically, 5 minutes before expiry |
+| Schwab refresh token | This worker (encrypted in KV) | 7 days (Schwab hard limit) | Cannot be renewed — requires a fresh Schwab login |
+
+The MCP client never sees Schwab tokens; the worker exchanges its own tokens
+for Schwab API calls per request. Schwab tokens live in KV under
+`token:<schwabClientCustomerId>` so all of a user's sessions (e.g. claude.ai
+and ChatGPT) share one Schwab login.
+
+**Weekly re-authentication is unavoidable**: Schwab expires refresh tokens
+after 7 days and no code can extend that. When the worker finds the Schwab
+leg dead (refresh token expired, or the token record is missing or
+unreadable), it responds to `POST /mcp` with `401` and a `WWW-Authenticate`
+header per the MCP spec. That is the signal MCP clients understand: the
+client automatically re-runs its OAuth flow — approval screen, Schwab login
+— and the worker stores fresh tokens. Enrolled users just complete the
+Schwab login; no invite code is needed after the first time.
+
+The corresponding log line is
+`Schwab tokens unavailable; returning 401 to trigger client re-auth`. A
+Schwab-side failure on an individual API call (e.g. access revoked at
+schwab.com mid-session) still surfaces as a tool error until the locally
+cached token expires (≤30 minutes), after which the 401 path takes over.
+
 ## Development
 
 ### Available Scripts
@@ -416,9 +448,17 @@ MIT
    - Ensure you have a paid Cloudflare Workers plan
    - Durable Objects are not available on the free tier
 
-4. **Token refresh issues**
-   - The server automatically refreshes tokens 5 minutes before expiration
-   - Tokens are migrated from clientId to schwabUserId keys automatically
+4. **Token refresh issues / repeated re-authentication prompts**
+   - The server automatically refreshes Schwab access tokens 5 minutes before
+     expiration; a re-auth prompt roughly every 7 days is expected (Schwab's
+     refresh-token limit — see
+     [Token Lifecycle](#token-lifecycle--re-authentication))
+   - A 401 from `/mcp` with `Schwab tokens unavailable` in the logs means the
+     client should re-run OAuth automatically; if it doesn't, disconnect and
+     reconnect the connector manually
+   - `Discarding non-envelope token record` in the logs means a token record
+     predates encryption (or `TOKEN_ENCRYPTION_KEY` changed) — one
+     re-authentication replaces it
    - Check KV namespace for stored tokens:
      `npx wrangler kv:key list --namespace-id=<your-id>`
 
