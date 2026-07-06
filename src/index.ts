@@ -184,14 +184,8 @@ export class MyMCP extends DurableObject<Env> {
 				`[MyMCP.init] STEP 5B: Proactive ETM initialization complete. Success: ${etmInitSuccess}`,
 			)
 
-			// 2.5. Auto-migrate tokens if we have schwabCustomerId but token was loaded from clientId key
-			if (this.props.schwabCustomerId && this.props.clientId) {
-				await kvToken.migrateIfNeeded(
-					{ clientId: this.props.clientId },
-					{ customId: this.props.schwabCustomerId },
-				)
-				this.mcpLogger.debug('[MyMCP.init] STEP 5C: Token migration completed')
-			}
+			// The auth callback stores tokens under the customerId key before any
+			// grant exists, so no clientId->customerId migration is needed here.
 
 			// 3. Create SchwabApiClient AFTER tokens are loaded
 			this.client = createApiClient({

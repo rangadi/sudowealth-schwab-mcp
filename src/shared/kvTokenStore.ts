@@ -4,7 +4,6 @@ import {
 	type KVNamespace,
 } from '@sudowealth/schwab-api'
 import { TOKEN_KEY_PREFIX, TTL_31_DAYS } from './constants'
-import { logger } from './log'
 
 // Create a type that matches the existing interface
 export interface KvTokenStore<T = any> {
@@ -12,11 +11,6 @@ export interface KvTokenStore<T = any> {
 	save(ids: TokenIdentifiers, data: T): Promise<void>
 	delete(ids: TokenIdentifiers): Promise<void>
 	kvKey(ids: TokenIdentifiers): string
-	migrate(fromIds: TokenIdentifiers, toIds: TokenIdentifiers): Promise<boolean>
-	migrateIfNeeded(
-		fromIds: TokenIdentifiers,
-		toIds: TokenIdentifiers,
-	): Promise<void>
 }
 
 /**
@@ -43,21 +37,6 @@ export function makeKvTokenStore<T = any>(kv: KVNamespace): KvTokenStore<T> {
 		},
 		kvKey: (ids: TokenIdentifiers) => {
 			return sdkStore.generateKey(ids)
-		},
-		migrate: async (fromIds: TokenIdentifiers, toIds: TokenIdentifiers) => {
-			return sdkStore.migrate(fromIds, toIds)
-		},
-		migrateIfNeeded: async (
-			fromIds: TokenIdentifiers,
-			toIds: TokenIdentifiers,
-		) => {
-			const success = await sdkStore.migrate(fromIds, toIds)
-			if (!success) {
-				logger.warn('Token migration was not needed or failed', {
-					from: sdkStore.generateKey(fromIds),
-					to: sdkStore.generateKey(toIds),
-				})
-			}
 		},
 	}
 }
