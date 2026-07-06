@@ -4,17 +4,25 @@ A Model Context Protocol (MCP) server that enables AI assistants like Claude to
 securely interact with Charles Schwab accounts and market data through the
 official Schwab API.
 
+**Invited by someone who runs this server?** You don't need to read the
+technical parts — jump straight to the
+[Guide for Invited Users](#guide-for-invited-users-no-coding-required).
+
 ## What You Can Do
 
 Ask Claude to:
 
-- "Show me my Schwab account balances and positions"
 - "Get real-time quotes for AAPL, GOOGL, and MSFT"
 - "What are today's market movers in the $SPX?"
 - "Show me the options chain for TSLA with Greeks"
-- "Get my transactions from the last 30 days"
 - "Search for ETFs related to technology"
 - "Check if the markets are open"
+
+And with full access (account tools are off by default — see
+[per-user tool scoping](#access-control-invite-only-enrollment)):
+
+- "Show me my Schwab account balances and positions"
+- "Get my transactions from the last 30 days"
 
 ## Unofficial MCP Server
 
@@ -22,6 +30,102 @@ This is an unofficial, community-developed TypeScript MCP server for Charles
 Schwab. It has not been approved, endorsed, or certified by Charles Schwab. It
 is provided as-is, and its functionality may be incomplete or unstable. Use at
 your own risk, especially when dealing with financial data or transactions.
+
+## Guide for Invited Users (No Coding Required)
+
+Someone you know runs this server and invited you to use it. Once connected,
+you can ask your AI assistant (Claude or ChatGPT) things like _"Get quotes
+for AAPL and MSFT"_, _"Show me the TSLA options chain"_, or _"Are the markets
+open today?"_ — and it answers with live data from Schwab.
+
+This guide takes you from invite to first quote. No technical knowledge
+needed.
+
+### What you can and can't do
+
+Your access is **market data only** unless the server owner explicitly grants
+more:
+
+- **Enabled:** real-time quotes, price history, options chains, market
+  movers, market hours, and instrument search.
+- **Not enabled (by default):** anything involving your accounts. The
+  assistant is not given any tools to see your balances, positions, or
+  transactions — and none to place, change, or cancel orders. If you ask
+  about your portfolio, it simply has no tool for that. If you later want
+  account access, the server owner can turn it on for you.
+
+You log in with your own Schwab account, so quotes are real-time if your
+Schwab account has real-time quote entitlements.
+
+### What you need
+
+1. A **Charles Schwab brokerage login** (the same one you use at schwab.com).
+2. From the server owner: the **server link** (looks like
+   `https://something.workers.dev/mcp`) and a **one-time invite code**. The
+   code is single-use and expires after 7 days, so connect soon after
+   receiving it — if it expires, just ask for a new one.
+3. A **Claude** (claude.ai) or **ChatGPT** (chatgpt.com) plan that supports
+   custom connectors. Both currently require a paid plan for this.
+
+### Connect in Claude (web or desktop)
+
+1. Open **Settings → Connectors** and choose **Add custom connector**.
+2. Give it a name (e.g. "Schwab") and paste the server link from the owner,
+   then click **Add** and **Connect**.
+3. An approval page from the server appears. **Click into the invite code
+   field** (the page auto-continues after a few seconds; clicking pauses it),
+   enter your invite code, and continue.
+4. You are sent to **schwab.com** to log in — your password goes to Schwab,
+   never to this server. Accept Schwab's terms.
+5. Schwab asks you to **select one or more accounts to link**. This is a
+   required step in Schwab's login and mainly determines your quote
+   entitlements — remember the assistant gets no account tools by default,
+   so it can't read what's in the account you pick.
+6. You land back in Claude. Start a new chat and try: _"Get a quote for
+   AAPL"_.
+
+### Connect in ChatGPT (web)
+
+ChatGPT calls these "connectors" too, but hides custom ones behind developer
+mode (exact menu names shift as ChatGPT updates; if you don't see an option,
+look for anything named "connectors" in settings):
+
+1. Open **Settings → Apps & Connectors** (or **Connectors**) →
+   **Advanced settings**, and turn on **Developer mode**.
+2. Back in **Connectors**, choose **Create** (or **Add custom connector**).
+3. Give it a name, paste the server link as the **MCP server URL**, select
+   **OAuth** as authentication, and save.
+4. The same approval page appears: click into the invite code field, enter
+   your code, continue, then log in at schwab.com and select accounts (see
+   the Claude steps above — same flow, same privacy notes).
+5. In a new chat, enable the connector (via the tools/plus menu) and try:
+   _"Get a quote for AAPL"_.
+
+### Once a week: log in again
+
+Schwab expires the connection every **7 days** — this is Schwab's rule, not
+the server's. When the assistant tells you authentication expired, go back to
+the connector settings and reconnect. You'll repeat the Schwab login, but
+**no invite code is needed** after the first time.
+
+### If something goes wrong
+
+- **"Access denied" page after logging in:** your invite code was wrong,
+  expired, or already used. Ask the owner for a fresh code and reconnect.
+- **"Schwab authentication expired":** the weekly login lapsed — reconnect
+  from the connector settings.
+- **The assistant says it can't see your accounts:** that's by design (see
+  above). Ask the owner for full access if you want it.
+- **Anything else:** ask the person who invited you — they can see the
+  server's logs.
+
+### Privacy, briefly
+
+You log in on schwab.com directly; this server never sees your password. It
+stores encrypted Schwab tokens so you don't have to log in for every
+question, and by default it exposes no account tools to your assistant. The
+server is operated by the person who invited you — connecting means trusting
+them to run it, the same way you'd trust any app you authorize with Schwab.
 
 ## Overview
 
@@ -192,6 +296,9 @@ expires on its own after 7 days (KV deletes the key, and the server treats a
 missing key as an invalid code).
 
 #### User: connecting with an invite code
+
+For a friendlier, step-by-step version to send to invitees, see the
+[Guide for Invited Users](#guide-for-invited-users-no-coding-required).
 
 1. Add the server URL (`https://<your-worker>.workers.dev/mcp`) as a custom
    connector in claude.ai or Claude Desktop.
