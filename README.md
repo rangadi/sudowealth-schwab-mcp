@@ -145,6 +145,63 @@ personal configuration without exposing secrets.
 
 The same secrets from Quick Setup need to be set (see above).
 
+### Access Control: Invite-Only Enrollment
+
+The server is invite-only. Anyone can reach the OAuth endpoints, but
+authorization only completes for Schwab customers that are enrolled in a KV
+allowlist. Identity is the stable `schwabClientCustomerId` that Schwab
+returns after login, so users never need to know their own ID — the server
+captures it automatically the first time they connect with a valid invite
+code.
+
+#### Owner: creating invite codes
+
+Each invite code is a one-time-use KV entry. Generate one per person
+(including yourself, for your very first connection after deploying):
+
+```bash
+# Generate and store an invite code (the note is just a label for you)
+CODE=$(openssl rand -hex 12)
+npx wrangler kv key put "invite:$CODE" '{"note":"alex"}' \
+  --namespace-id <YOUR_OAUTH_KV_ID> --remote
+echo "Invite code: $CODE"
+```
+
+Send the code to the person over a private channel. It is consumed on first
+use, so a leaked code is worthless after redemption.
+
+#### User: connecting with an invite code
+
+1. Add the server URL (`https://<your-worker>.workers.dev/mcp`) as a custom
+   connector in claude.ai or Claude Desktop.
+2. On the approval screen, enter the invite code in the **Invite code**
+   field. (The screen auto-continues after a few seconds; clicking into the
+   field pauses it.)
+3. Log in to Schwab as usual.
+
+That's it — the server enrolls the account and deletes the invite code.
+Subsequent re-authentications (Schwab requires one every 7 days) need no
+code. Anyone who completes a Schwab login without being enrolled gets a
+403 page, and their just-issued Schwab tokens are deleted immediately.
+
+#### Owner: managing enrollment
+
+```bash
+# List enrolled customers
+npx wrangler kv key list --namespace-id <YOUR_OAUTH_KV_ID> --remote | grep allowed:
+
+# List outstanding (unredeemed) invite codes
+npx wrangler kv key list --namespace-id <YOUR_OAUTH_KV_ID> --remote | grep invite:
+
+# Revoke a user (they can no longer complete authorization;
+# also delete their token:<customerId> entry to kill the active session)
+npx wrangler kv key delete "allowed:<customerId>" --namespace-id <YOUR_OAUTH_KV_ID> --remote
+npx wrangler kv key delete "token:<customerId>" --namespace-id <YOUR_OAUTH_KV_ID> --remote
+
+# Cancel an unredeemed invite
+npx wrangler kv key delete "invite:<code>" --namespace-id <YOUR_OAUTH_KV_ID> --remote
+```
+
 ### GitHub Actions Deployment
 
 For automated deployments, add these GitHub repository secrets:
@@ -250,17 +307,20 @@ Connect to `http://localhost:8788/mcp` using the MCP Inspector for testing
 
 ### Security Features
 
-1. **OAuth 2.0 with PKCE**: Secure authentication flow preventing authorization
+1. **Invite-Only Access**: Authorization only completes for Schwab customers
+   enrolled in a KV allowlist; first-time users enroll with a one-time invite
+   code (see [Access Control](#access-control-invite-only-enrollment))
+2. **OAuth 2.0 with PKCE**: Secure authentication flow preventing authorization
    code interception
-2. **Enhanced Token Management**:
+3. **Enhanced Token Management**:
    - Centralized KV token store with automatic migration
    - Automatic token refresh (5 minutes before expiration)
    - 31-day token persistence with TTL
-3. **Account Scrubbing**: Sensitive account identifiers are automatically
+4. **Account Scrubbing**: Sensitive account identifiers are automatically
    replaced with display names
-4. **State Security**: HMAC-SHA256 signatures for state parameter integrity
-5. **Cookie Encryption**: Client approval state encrypted with AES-256
-6. **Secret Redaction**: Automatic masking of sensitive data in logs
+5. **State Security**: HMAC-SHA256 signatures for state parameter integrity
+6. **Cookie Encryption**: Client approval state encrypted with AES-256
+7. **Secret Redaction**: Automatic masking of sensitive data in logs
 
 ## Development
 
