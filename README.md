@@ -41,21 +41,40 @@ open today?"_ — and it answers with live data from Schwab.
 This guide takes you from invite to first quote. No technical knowledge
 needed.
 
-### What you can and can't do
+### Market data only — account access is disabled by default
 
-Your access is **market data only** unless the server owner explicitly grants
-more:
+Even though you log in with your Schwab brokerage account, your assistant
+only gets **market data** tools. Nothing that touches your accounts is made
+available to it unless the server owner explicitly enables that for you.
 
-- **Enabled:** real-time quotes, price history, options chains, market
-  movers, market hours, and instrument search.
-- **Not enabled (by default):** anything involving your accounts. The
-  assistant is not given any tools to see your balances, positions, or
-  transactions — and none to place, change, or cancel orders. If you ask
-  about your portfolio, it simply has no tool for that. If you later want
-  account access, the server owner can turn it on for you.
+**What the assistant can do:**
 
-You log in with your own Schwab account, so quotes are real-time if your
-Schwab account has real-time quote entitlements.
+- Look up real-time quotes for stocks, ETFs, and indexes
+- Get historical price data
+- Retrieve options chains and expiration dates
+- List the day's market movers
+- Check market hours
+- Search for instruments (e.g. find ETFs by keyword)
+
+**What the assistant cannot do (disabled by default):**
+
+- See your account balances, positions, or holdings
+- See your transaction history
+- Place, change, or cancel orders — no trading of any kind
+- See your account numbers or preferences
+
+These aren't just blocked — the account tools are never handed to the
+assistant in the first place. If you ask "what's in my portfolio?", it
+simply has no tool that could answer, the same as if the server didn't
+support accounts at all.
+
+Why log in with your Schwab account then? Two reasons: it proves to the
+server who you are, and Schwab uses your account's entitlements to decide
+whether you get real-time or delayed quotes.
+
+If you later want the assistant to see your accounts, ask the server owner —
+they can enable full access for you specifically, and it takes effect the
+next time you log in to Schwab.
 
 ### What you need
 
