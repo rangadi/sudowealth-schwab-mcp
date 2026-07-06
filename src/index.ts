@@ -36,8 +36,8 @@ import { StreamableHttpEdgeTransport } from './transports/streamableHttpTranspor
  * Tokens are stored exclusively in KV to prevent divergence
  */
 type MyMCPProps = {
-	/** Schwab user ID when available (preferred for token key) */
-	schwabUserId?: string
+	/** Stable Schwab customer ID when available (preferred for token key) */
+	schwabCustomerId?: string
 	/** OAuth client ID (fallback for token key) */
 	clientId?: string
 }
@@ -102,7 +102,7 @@ export class MyMCP extends DurableObject<Env> {
 			}
 
 			const getTokenIds = (): TokenIdentifiers => ({
-				schwabUserId: this.props.schwabUserId,
+				customId: this.props.schwabCustomerId,
 				clientId: this.props.clientId,
 			})
 
@@ -112,7 +112,7 @@ export class MyMCP extends DurableObject<Env> {
 				'debug',
 				'[MyMCP.init] Token identifiers',
 				{
-					hasSchwabUserId: !!this.props.schwabUserId,
+					hasSchwabCustomerId: !!this.props.schwabCustomerId,
 					hasClientId: !!this.props.clientId,
 					expectedKeyPrefix: sanitizeKeyForLog(kvToken.kvKey(getTokenIds())),
 				},
@@ -130,7 +130,7 @@ export class MyMCP extends DurableObject<Env> {
 			const loadTokenForETM = async (): Promise<TokenData | null> => {
 				const tokenIds = getTokenIds()
 				this.mcpLogger.debug('[ETM Load] Attempting to load token', {
-					hasSchwabUserId: !!tokenIds.schwabUserId,
+					hasSchwabCustomerId: !!tokenIds.customId,
 					hasClientId: !!tokenIds.clientId,
 					expectedKeyPrefix: sanitizeKeyForLog(kvToken.kvKey(tokenIds)),
 				})
@@ -184,11 +184,11 @@ export class MyMCP extends DurableObject<Env> {
 				`[MyMCP.init] STEP 5B: Proactive ETM initialization complete. Success: ${etmInitSuccess}`,
 			)
 
-			// 2.5. Auto-migrate tokens if we have schwabUserId but token was loaded from clientId key
-			if (this.props.schwabUserId && this.props.clientId) {
+			// 2.5. Auto-migrate tokens if we have schwabCustomerId but token was loaded from clientId key
+			if (this.props.schwabCustomerId && this.props.clientId) {
 				await kvToken.migrateIfNeeded(
 					{ clientId: this.props.clientId },
-					{ schwabUserId: this.props.schwabUserId },
+					{ customId: this.props.schwabCustomerId },
 				)
 				this.mcpLogger.debug('[MyMCP.init] STEP 5C: Token migration completed')
 			}
@@ -416,8 +416,8 @@ function mcpObjectFor(
 			return null // malformed session id from client
 		}
 	}
-	const name = props.schwabUserId
-		? `user:${props.schwabUserId}`
+	const name = props.schwabCustomerId
+		? `user:${props.schwabCustomerId}`
 		: props.clientId
 			? `client:${props.clientId}`
 			: null

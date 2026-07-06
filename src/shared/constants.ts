@@ -72,3 +72,12 @@ export const CONTENT_TYPES = {
  */
 export const TOKEN_KEY_PREFIX = 'token:' as const
 export const TTL_31_DAYS = 31 * 24 * 60 * 60
+
+/**
+ * Access Gating Constants
+ *
+ * `allowed:<schwabClientCustomerId>` marks an enrolled customer.
+ * `invite:<code>` is a one-time invite code, consumed on first use.
+ */
+export const ALLOWLIST_KEY_PREFIX = 'allowed:' as const
+export const INVITE_KEY_PREFIX = 'invite:' as const
