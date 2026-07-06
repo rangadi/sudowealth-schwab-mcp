@@ -81,3 +81,17 @@ export const TTL_31_DAYS = 31 * 24 * 60 * 60
  */
 export const ALLOWLIST_KEY_PREFIX = 'allowed:' as const
 export const INVITE_KEY_PREFIX = 'invite:' as const
+
+/**
+ * Hosts (and their subdomains) that dynamically registered OAuth clients may
+ * use in redirect_uris. Keeps /register from being used to point auth codes
+ * at arbitrary attacker-controlled callbacks. Loopback hosts are additionally
+ * allowed for local dev tools like the MCP inspector.
+ */
+export const ALLOWED_REDIRECT_HOSTS = [
+	'claude.ai',
+	'claude.com',
+	'anthropic.com',
+	'chatgpt.com',
+	'openai.com',
+] as const

@@ -11,6 +11,8 @@ declare namespace Cloudflare {
 		SCHWAB_REDIRECT_URI: string
 		HOSTED_DOMAIN: string
 		MCP_OBJECT: DurableObjectNamespace<import('../src/index').MyMCP>
+		/** Workers rate-limiting binding; optional so deploys without it skip limiting */
+		AUTH_RATE_LIMITER?: RateLimit
 	}
 }
 interface Env extends Cloudflare.Env {}

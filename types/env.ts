@@ -42,11 +42,6 @@ export interface Env {
 	 * Defaults to production if not specified
 	 */
 	ENVIRONMENT?: string
-
-	/**
-	 * Optional comma-separated list of additional redirect URI regex patterns
-	 */
-	ALLOWED_REDIRECT_REGEXPS?: string
 }
 
 /**
@@ -90,9 +85,4 @@ export interface ValidatedEnv {
 	 * Defaults to production if not specified
 	 */
 	readonly ENVIRONMENT?: 'development' | 'staging' | 'production'
-
-	/**
-	 * Optional comma-separated list of additional redirect URI regex patterns
-	 */
-	readonly ALLOWED_REDIRECT_REGEXPS?: string
 }

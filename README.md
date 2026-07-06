@@ -318,17 +318,26 @@ Connect to `http://localhost:8788/mcp` using the MCP Inspector for testing
 1. **Invite-Only Access**: Authorization only completes for Schwab customers
    enrolled in a KV allowlist; first-time users enroll with a one-time invite
    code (see [Access Control](#access-control-invite-only-enrollment))
-2. **OAuth 2.0 with PKCE**: Secure authentication flow preventing authorization
+2. **Registration Lockdown**: Dynamic client registration (`/register`) only
+   accepts redirect URIs on known MCP client hosts (claude.ai, claude.com,
+   anthropic.com, chatgpt.com, openai.com, or localhost for dev tools), so
+   authorization codes can't be routed to arbitrary callbacks. Edit
+   `ALLOWED_REDIRECT_HOSTS` in `src/shared/constants.ts` to change the list.
+3. **Auth Endpoint Rate Limiting**: `/register`, `/authorize`, `/token`, and
+   `/callback` are limited to 15 requests/minute per IP via the Workers rate
+   limiting binding (see `unsafe.bindings` in `wrangler.example.jsonc`;
+   limiting is skipped if the binding is not configured)
+4. **OAuth 2.0 with PKCE**: Secure authentication flow preventing authorization
    code interception
-3. **Enhanced Token Management**:
+5. **Enhanced Token Management**:
    - Centralized KV token store with automatic migration
    - Automatic token refresh (5 minutes before expiration)
    - 31-day token persistence with TTL
-4. **Account Scrubbing**: Sensitive account identifiers are automatically
+6. **Account Scrubbing**: Sensitive account identifiers are automatically
    replaced with display names
-5. **State Security**: HMAC-SHA256 signatures for state parameter integrity
-6. **Cookie Encryption**: Client approval state encrypted with AES-256
-7. **Secret Redaction**: Automatic masking of sensitive data in logs
+7. **State Security**: HMAC-SHA256 signatures for state parameter integrity
+8. **Cookie Encryption**: Client approval state encrypted with AES-256
+9. **Secret Redaction**: Automatic masking of sensitive data in logs
 
 ## Development
 

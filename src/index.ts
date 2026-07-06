@@ -13,6 +13,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { type ValidatedEnv } from '../types/env'
 import { SchwabHandler, initializeSchwabAuthClient } from './auth'
+import { validateClientRegistration } from './auth/registration'
 import { getConfig } from './config'
 import {
 	APP_NAME,
@@ -462,11 +463,44 @@ mcpApp.post(API_ENDPOINTS.SSE_MESSAGE, cors(), async (c) => {
 	return await object.onSSEMessage(c.req.raw)
 })
 
-export default new OAuthProvider({
+const oauthProvider = new OAuthProvider({
 	apiRoute: [API_ENDPOINTS.MCP, API_ENDPOINTS.SSE, API_ENDPOINTS.SSE_MESSAGE],
 	apiHandler: mcpApp as any, // Hono app satisfies the { fetch } handler shape OAuthProvider expects
 	defaultHandler: SchwabHandler as any, // Cast remains
 	authorizeEndpoint: API_ENDPOINTS.AUTHORIZE,
 	tokenEndpoint: API_ENDPOINTS.TOKEN,
-	clientRegistrationEndpoint: '/register', // This was missing in origin repo.
+	clientRegistrationEndpoint: API_ENDPOINTS.REGISTER, // This was missing in origin repo.
+	clientRegistrationCallback: validateClientRegistration,
 })
+
+/**
+ * Public, unauthenticated auth endpoints get a per-IP rate limit. The MCP
+ * endpoints are excluded: they require a bearer token, and legitimate tool
+ * traffic can burst well past any limit suitable for the auth surface.
+ */
+const RATE_LIMITED_PATHS = new Set<string>([
+	API_ENDPOINTS.REGISTER,
+	API_ENDPOINTS.AUTHORIZE,
+	API_ENDPOINTS.TOKEN,
+	API_ENDPOINTS.CALLBACK,
+])
+
+export default {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+		// Skip OPTIONS so rate limiting can't break CORS preflights
+		if (request.method !== 'OPTIONS' && env.AUTH_RATE_LIMITER) {
+			const { pathname } = new URL(request.url)
+			if (RATE_LIMITED_PATHS.has(pathname)) {
+				const key = request.headers.get('CF-Connecting-IP') ?? 'unknown'
+				const { success } = await env.AUTH_RATE_LIMITER.limit({ key })
+				if (!success) {
+					return new Response('Too many requests', {
+						status: 429,
+						headers: { 'Retry-After': '60' },
+					})
+				}
+			}
+		}
+		return oauthProvider.fetch(request, env, ctx)
+	},
+}
