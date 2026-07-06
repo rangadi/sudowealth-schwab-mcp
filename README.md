@@ -161,8 +161,8 @@ Each invite code is a one-time-use KV entry. Generate one per person
 
 ```bash
 # Generate and store an invite code (the note is just a label for you)
-CODE=$(openssl rand -hex 12)
-npx wrangler kv key put "invite:$CODE" '{"note":"alex"}' \
+CODE="<name>-$(date '+%Y_%m_%d')-$(openssl rand -hex 6)"
+npx wrangler kv key put "invite:$CODE" '{"note":"for <name>"}' \
   --namespace-id <YOUR_OAUTH_KV_ID> --remote
 echo "Invite code: $CODE"
 ```
