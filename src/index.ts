@@ -345,6 +345,28 @@ export class MyMCP extends DurableObject<Env> {
 		if (!this.tokenManager) {
 			await this.onReconnect()
 		}
+		// If the Schwab leg is dead (no tokens, unreadable record, or refresh
+		// token expired), answer HTTP 401 so the MCP client re-runs its OAuth
+		// flow. A Schwab failure surfaced as an in-band tool error keeps this
+		// layer's token valid and gives the client no signal to re-authorize.
+		let schwabAuthAlive = false
+		try {
+			schwabAuthAlive = !!(await this.tokenManager.getAccessToken())
+		} catch {
+			schwabAuthAlive = false
+		}
+		if (!schwabAuthAlive) {
+			this.mcpLogger.warn(
+				'Schwab tokens unavailable; returning 401 to trigger client re-auth',
+			)
+			const resourceMetadata = `${new URL(request.url).origin}/.well-known/oauth-protected-resource/mcp`
+			return new Response('Schwab authentication expired; please re-authorize', {
+				status: 401,
+				headers: {
+					'WWW-Authenticate': `Bearer error="invalid_token", error_description="Schwab authentication expired", resource_metadata="${resourceMetadata}"`,
+				},
+			})
+		}
 		if (!this.streamableTransport) {
 			this.streamableTransport = new StreamableHttpEdgeTransport(
 				this.ctx.id.toString(),
