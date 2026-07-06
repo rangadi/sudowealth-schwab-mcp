@@ -160,15 +160,18 @@ Each invite code is a one-time-use KV entry. Generate one per person
 (including yourself, for your very first connection after deploying):
 
 ```bash
-# Generate and store an invite code (the note is just a label for you)
+# Generate and store an invite code (the note is just a label for you).
+# --ttl makes the unredeemed code self-delete after 7 days.
 CODE="<name>-$(date '+%Y_%m_%d')-$(openssl rand -hex 6)"
 npx wrangler kv key put "invite:$CODE" '{"note":"for <name>"}' \
-  --namespace-id <YOUR_OAUTH_KV_ID> --remote
+  --ttl 604800 --namespace-id <YOUR_OAUTH_KV_ID> --remote
 echo "Invite code: $CODE"
 ```
 
 Send the code to the person over a private channel. It is consumed on first
-use, so a leaked code is worthless after redemption.
+use, so a leaked code is worthless after redemption — and an unredeemed code
+expires on its own after 7 days (KV deletes the key, and the server treats a
+missing key as an invalid code).
 
 #### User: connecting with an invite code
 
