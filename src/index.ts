@@ -94,7 +94,10 @@ export class MyMCP extends DurableObject<Env> {
 			this.mcpLogger.debug('[MyMCP.init] STEP 1: Env initialized.')
 
 			// Create KV token store - single source of truth
-			const kvToken = makeKvTokenStore(this.validatedConfig.OAUTH_KV)
+			const kvToken = makeKvTokenStore(
+				this.validatedConfig.OAUTH_KV,
+				this.validatedConfig.TOKEN_ENCRYPTION_KEY,
+			)
 
 			// Ensure clientId is stored in props for token key derivation
 			if (!this.props.clientId) {

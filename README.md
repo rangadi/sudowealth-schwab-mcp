@@ -115,6 +115,7 @@ npx wrangler secret put SCHWAB_CLIENT_ID      # Your Schwab App Key
 npx wrangler secret put SCHWAB_CLIENT_SECRET  # Your Schwab App Secret
 npx wrangler secret put SCHWAB_REDIRECT_URI   # https://your-worker-name.workers.dev/callback
 npx wrangler secret put COOKIE_ENCRYPTION_KEY # Generate with: openssl rand -hex 32
+npx wrangler secret put TOKEN_ENCRYPTION_KEY  # Generate with: openssl rand -hex 32 (encrypts Schwab tokens in KV)
 
 # Deploy
 npm run deploy
@@ -330,7 +331,10 @@ Connect to `http://localhost:8788/mcp` using the MCP Inspector for testing
 4. **OAuth 2.0 with PKCE**: Secure authentication flow preventing authorization
    code interception
 5. **Enhanced Token Management**:
-   - Centralized KV token store with automatic migration
+   - Schwab tokens are AES-256-GCM encrypted (via the `TOKEN_ENCRYPTION_KEY`
+     secret) before being written to KV, so KV read access alone cannot
+     yield usable brokerage tokens
+   - Centralized KV token store
    - Automatic token refresh (5 minutes before expiration)
    - 31-day token persistence with TTL
 6. **Account Scrubbing**: Sensitive account identifiers are automatically

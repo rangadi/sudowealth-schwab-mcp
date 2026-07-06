@@ -229,7 +229,10 @@ app.get('/callback', async (c) => {
 
 		// Set up redirect URI and token storage using centralized KV helper
 		const redirectUri = config.SCHWAB_REDIRECT_URI
-		const kvToken = makeKvTokenStore(config.OAUTH_KV)
+		const kvToken = makeKvTokenStore(
+			config.OAUTH_KV,
+			config.TOKEN_ENCRYPTION_KEY,
+		)
 
 		// Initial token identifiers (before we get schwabCustomerId)
 		const getInitialTokenIds = () => ({ clientId: clientIdFromState })
