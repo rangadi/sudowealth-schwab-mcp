@@ -368,21 +368,32 @@ app.get('/callback', async (c) => {
 			)
 		}
 
-		// Move tokens from the transient clientId key to the stable customerId
-		// key (migrate deletes the source key).
+		// Move the freshly exchanged tokens from the transient clientId key to
+		// the stable customerId key. We overwrite unconditionally instead of
+		// using migrate(), because on re-authentication the customerId key
+		// already holds the previous (now-stale) tokens and migrate() refuses
+		// to overwrite an existing destination — it would discard the fresh
+		// tokens we just obtained and leave the expired ones in place.
 		try {
-			await kvToken.migrate(
-				{ clientId: clientIdFromState },
-				{ customId: schwabCustomerId },
-			)
-			oauthLogger.info('Token migrated to schwabCustomerId key', {
-				fromKeyPrefix: sanitizeKeyForLog(
-					kvToken.kvKey({ clientId: clientIdFromState }),
-				),
-				toKeyPrefix: sanitizeKeyForLog(
-					kvToken.kvKey({ customId: schwabCustomerId }),
-				),
-			})
+			const freshTokens = await kvToken.load({ clientId: clientIdFromState })
+			if (freshTokens) {
+				await kvToken.save({ customId: schwabCustomerId }, freshTokens)
+				await kvToken.delete({ clientId: clientIdFromState })
+				oauthLogger.info('Fresh tokens stored under schwabCustomerId key', {
+					fromKeyPrefix: sanitizeKeyForLog(
+						kvToken.kvKey({ clientId: clientIdFromState }),
+					),
+					toKeyPrefix: sanitizeKeyForLog(
+						kvToken.kvKey({ customId: schwabCustomerId }),
+					),
+				})
+			} else {
+				oauthLogger.warn('No freshly exchanged tokens found to store', {
+					fromKeyPrefix: sanitizeKeyForLog(
+						kvToken.kvKey({ clientId: clientIdFromState }),
+					),
+				})
+			}
 		} catch (migrationError) {
 			oauthLogger.warn(
 				'Token migration failed, continuing with authorization',
