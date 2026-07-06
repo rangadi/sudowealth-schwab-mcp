@@ -32,9 +32,9 @@ function sanitizeKey(key: string): string {
  * holding only a clientId (the auth callback, before the customer ID is
  * known) and callers holding both (the Durable Object) read consistently.
  *
- * Records written before encryption was introduced are plaintext JSON;
- * load() accepts them and re-encrypts in place, so existing sessions
- * survive the rollout without re-authentication.
+ * Only encrypted envelopes are readable; anything else (including records
+ * written before encryption was introduced) is treated as missing, which
+ * sends the user through re-authentication.
  */
 export function makeKvTokenStore<T = any>(
 	kv: KVNamespace,
@@ -75,17 +75,9 @@ export function makeKvTokenStore<T = any>(
 				if (isEncryptedEnvelope(parsed)) {
 					return await decryptJson<T>(encryptionKey, parsed)
 				}
-				// Legacy plaintext record from before encryption: upgrade in
-				// place so it does not stay readable in KV.
-				await kv.put(
-					key,
-					JSON.stringify(await encryptJson(encryptionKey, parsed)),
-					{ expirationTtl: TTL_31_DAYS },
-				)
-				storeLogger.info('Upgraded plaintext token record to encrypted', {
+				storeLogger.warn('Discarding non-envelope token record', {
 					keyPrefix: sanitizeKey(key),
 				})
-				return parsed as T
 			} catch (error) {
 				// Wrong key (e.g. rotated secret) or corrupt record: treat as
 				// missing so the user is sent through re-authentication.
