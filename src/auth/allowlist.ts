@@ -57,12 +57,18 @@ export async function enrollWithInviteCode(
 		// Invite value is free-form; a note is optional.
 	}
 
+	const enrollment = {
+		enrolledAt: new Date().toISOString(),
+		inviteCode,
+		...(inviteNote ? { note: inviteNote } : {}),
+	}
+	// Duplicate the record into KV metadata: `wrangler kv key list` returns
+	// metadata inline, so the owner can see which person each enrolled
+	// customer ID belongs to without fetching every value.
 	await kv.put(
 		`${ALLOWLIST_KEY_PREFIX}${schwabCustomerId}`,
-		JSON.stringify({
-			enrolledAt: new Date().toISOString(),
-			...(inviteNote ? { note: inviteNote } : {}),
-		}),
+		JSON.stringify(enrollment),
+		{ metadata: enrollment },
 	)
 	await kv.delete(inviteKey)
 	// customerIdPrefix: full customer IDs are redacted from logs by design

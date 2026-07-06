@@ -186,9 +186,14 @@ code. Anyone who completes a Schwab login without being enrolled gets a
 
 #### Owner: managing enrollment
 
+Each `allowed:` key carries the invite code and note as KV metadata, so the
+list command shows which person each enrolled customer ID belongs to:
+
 ```bash
-# List enrolled customers
-npx wrangler kv key list --namespace-id <YOUR_OAUTH_KV_ID> --remote | grep allowed:
+# List enrolled customers with who-is-who metadata
+npx wrangler kv key list --namespace-id <YOUR_OAUTH_KV_ID> --remote \
+  | jq '.[] | select(.name | startswith("allowed:"))'
+# → { "name": "allowed:ce62...", "metadata": { "inviteCode": "alex-2026_07_05-...", "note": "for alex", ... } }
 
 # List outstanding (unredeemed) invite codes
 npx wrangler kv key list --namespace-id <YOUR_OAUTH_KV_ID> --remote | grep invite:
