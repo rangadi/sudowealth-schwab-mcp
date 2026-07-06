@@ -115,6 +115,10 @@ app.post('/authorize', async (c) => {
 			return c.json(jsonResponse, errorInfo.status as any)
 		}
 
+		if (inviteCode) {
+			oauthLogger.info('Invite code entered on approval form', { inviteCode })
+		}
+
 		// Pass the actual AuthRequest object to redirectToSchwab
 		const authRequestForSchwab = state.oauthReqInfo
 
@@ -326,6 +330,12 @@ app.get('/callback', async (c) => {
 				inviteCode,
 				schwabCustomerId,
 			)
+			if (allowed) {
+				oauthLogger.info('Successfully logged in using invite code', {
+					inviteCode,
+					customerIdPrefix: `${schwabCustomerId.slice(0, 8)}...`,
+				})
+			}
 		}
 		if (!allowed) {
 			oauthLogger.warn('Denied authorization for unenrolled Schwab customer')

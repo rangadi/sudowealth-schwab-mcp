@@ -44,7 +44,9 @@ export async function enrollWithInviteCode(
 	const inviteKey = `${INVITE_KEY_PREFIX}${inviteCode}`
 	const invite = await kv.get(inviteKey)
 	if (invite === null) {
-		allowlistLogger.warn('Invalid or already-used invite code presented')
+		allowlistLogger.warn('Invalid or already-used invite code presented', {
+			inviteCode,
+		})
 		return false
 	}
 
@@ -63,7 +65,10 @@ export async function enrollWithInviteCode(
 		}),
 	)
 	await kv.delete(inviteKey)
-	allowlistLogger.info('Enrolled Schwab customer via invite code', {
+	// customerIdPrefix: full customer IDs are redacted from logs by design
+	allowlistLogger.info('Updated allowlist with newly enrolled customer', {
+		inviteCode,
+		customerIdPrefix: `${schwabCustomerId.slice(0, 8)}...`,
 		...(inviteNote ? { note: inviteNote } : {}),
 	})
 	return true
