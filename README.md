@@ -41,6 +41,12 @@ providing:
 
 ## Features
 
+Tool visibility is per-user: enrollments default to market-data-only, and
+the trading tools below are registered only for users enrolled with
+`"scope": "full"` (see
+[Access Control](#access-control-invite-only-enrollment)). `getQuotes` and
+`getQuoteBySymbolId` are market-data tools and available to everyone.
+
 ### Trading Tools
 
 - **Account Management**
@@ -169,6 +175,17 @@ npx wrangler kv key put "invite:$CODE" '{"note":"for <name>"}' \
 echo "Invite code: $CODE"
 ```
 
+By default an invite enrolls the person with **market-data-only** access:
+quotes, price history, option chains, movers, market hours, instrument
+search. The trader tools (accounts, orders, transactions) are not even
+registered for them. To grant full access — e.g. for yourself — add
+`"scope": "full"` to the invite value:
+
+```bash
+npx wrangler kv key put "invite:$CODE" '{"note":"for me","scope":"full"}' \
+  --ttl 604800 --namespace-id <YOUR_OAUTH_KV_ID> --remote
+```
+
 Send the code to the person over a private channel. It is consumed on first
 use, so a leaked code is worthless after redemption — and an unredeemed code
 expires on its own after 7 days (KV deletes the key, and the server treats a
@@ -210,6 +227,28 @@ npx wrangler kv key delete "token:<customerId>" --namespace-id <YOUR_OAUTH_KV_ID
 # Cancel an unredeemed invite
 npx wrangler kv key delete "invite:<code>" --namespace-id <YOUR_OAUTH_KV_ID> --remote
 ```
+
+#### Owner: changing a user's tool scope
+
+The enrollment record's `scope` field controls which tools the user sees:
+`"market"` (or absent — the default) exposes market data only; `"full"` adds
+the trader tools. To change it, rewrite the `allowed:` record preserving its
+other fields:
+
+```bash
+# Inspect the current record
+npx wrangler kv key get "allowed:<customerId>" --namespace-id <YOUR_OAUTH_KV_ID> --remote
+
+# Upgrade to full access (keep the existing fields, add/replace scope)
+npx wrangler kv key put "allowed:<customerId>" \
+  '{"enrolledAt":"<keep>","inviteCode":"<keep>","note":"<keep>","scope":"full"}' \
+  --namespace-id <YOUR_OAUTH_KV_ID> --remote
+```
+
+A scope change takes effect the next time the user re-authorizes with
+Schwab (at most 7 days, when their refresh token expires), because the
+scope is baked into the OAuth grant at authorization time. Enrollments
+created before scopes existed have no `scope` field and are market-only.
 
 ### GitHub Actions Deployment
 

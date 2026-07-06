@@ -13,7 +13,7 @@ import { getConfig } from '../config'
 import { LOGGER_CONTEXTS, APP_SERVER_NAME } from '../shared/constants'
 import { makeKvTokenStore } from '../shared/kvTokenStore'
 import { logger } from '../shared/log'
-import { isCustomerAllowed, enrollWithInviteCode } from './allowlist'
+import { getEnrolledScope, enrollWithInviteCode } from './allowlist'
 import { initializeSchwabAuthClient, redirectToSchwab } from './client'
 import {
 	clientIdAlreadyApproved,
@@ -325,22 +325,24 @@ app.get('/callback', async (c) => {
 		}
 
 		// Access gate: only enrolled customers (or first-timers redeeming a
-		// valid invite code) may complete authorization.
-		let allowed = await isCustomerAllowed(config.OAUTH_KV, schwabCustomerId)
-		if (!allowed && inviteCode) {
-			allowed = await enrollWithInviteCode(
+		// valid invite code) may complete authorization. The enrollment also
+		// carries the customer's tool scope (market-only by default).
+		let toolScope = await getEnrolledScope(config.OAUTH_KV, schwabCustomerId)
+		if (toolScope === null && inviteCode) {
+			toolScope = await enrollWithInviteCode(
 				config.OAUTH_KV,
 				inviteCode,
 				schwabCustomerId,
 			)
-			if (allowed) {
+			if (toolScope !== null) {
 				oauthLogger.info('Successfully logged in using invite code', {
 					inviteCode,
 					customerIdPrefix: `${schwabCustomerId.slice(0, 8)}...`,
+					toolScope,
 				})
 			}
 		}
-		if (!allowed) {
+		if (toolScope === null) {
 			oauthLogger.warn('Denied authorization for unenrolled Schwab customer')
 			// Remove the Schwab tokens saved during the code exchange; a denied
 			// user should leave nothing behind.
@@ -419,6 +421,9 @@ app.get('/callback', async (c) => {
 				// Only store IDs for token key derivation - tokens are in KV
 				schwabCustomerId,
 				clientId: clientIdFromState,
+				// Tool scope rides in the grant props so the DO can register
+				// only the tool families this customer is entitled to.
+				toolScope,
 			},
 		})
 

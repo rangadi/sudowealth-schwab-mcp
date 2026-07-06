@@ -1,5 +1,8 @@
 import OAuthProvider from '@cloudflare/workers-oauth-provider'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import {
+	McpServer,
+	type RegisteredTool,
+} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
 	createApiClient,
 	sanitizeKeyForLog,
@@ -13,6 +16,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { type ValidatedEnv } from '../types/env'
 import { SchwabHandler, initializeSchwabAuthClient } from './auth'
+import { type ToolScope } from './auth/allowlist'
 import { validateClientRegistration } from './auth/registration'
 import { getConfig } from './config'
 import {
@@ -28,7 +32,7 @@ import { makeKvTokenStore, type TokenIdentifiers } from './shared/kvTokenStore'
 import { logger, buildLogger, type PinoLogLevel } from './shared/log'
 import { logOnlyInDevelopment } from './shared/secureLogger'
 import { createTool, toolError, toolSuccess } from './shared/toolBuilder'
-import { allToolSpecs, type ToolSpec } from './tools'
+import { marketToolSpecs, traderToolSpecs, type ToolSpec } from './tools'
 import { SseEdgeTransport } from './transports/sseEdgeTransport'
 import { StreamableHttpEdgeTransport } from './transports/streamableHttpTransport'
 
@@ -41,11 +45,19 @@ type MyMCPProps = {
 	schwabCustomerId?: string
 	/** OAuth client ID (fallback for token key) */
 	clientId?: string
+	/**
+	 * Tool families this grant may use. Absent on grants issued before
+	 * scopes existed; those are treated as market-only until the weekly
+	 * Schwab re-auth rewrites the grant props from the allowlist record.
+	 */
+	toolScope?: ToolScope
 }
 
 export class MyMCP extends DurableObject<Env> {
 	props: MyMCPProps = {}
 	private initRun = false
+	private registeredScope?: ToolScope
+	private traderToolHandles: RegisteredTool[] = []
 	private sseTransport?: SseEdgeTransport
 	private streamableTransport?: StreamableHttpEdgeTransport
 	private tokenManager!: EnhancedTokenManager
@@ -63,7 +75,55 @@ export class MyMCP extends DurableObject<Env> {
 		if (!this.initRun) {
 			this.initRun = true
 			await this.init()
+		} else if (this.registeredScope !== undefined) {
+			// A warm DO outlives re-authorization: when the Schwab re-auth
+			// rewrites the grant props with a changed scope, pick it up here
+			// instead of waiting for DO eviction.
+			this.applyToolScope(props.toolScope === 'full' ? 'full' : 'market')
 		}
+	}
+
+	/** Wraps a ToolSpec into an McpServer tool and returns the SDK handle. */
+	private registerSpec(spec: ToolSpec<any>): RegisteredTool {
+		return createTool(this.client, this.server, {
+			name: spec.name,
+			description: spec.description,
+			schema: spec.schema,
+			handler: async (params, c) => {
+				try {
+					const data = await spec.call(c, params)
+					return toolSuccess({
+						data,
+						source: spec.name,
+						message: `Successfully executed ${spec.name}`,
+					})
+				} catch (error) {
+					return toolError(error, { source: spec.name })
+				}
+			},
+		})
+	}
+
+	/**
+	 * Adds or removes the trader tools so the registered set matches the
+	 * grant's scope. Market tools are the always-present baseline; trader
+	 * tools (accounts, orders, transactions) exist only under full scope.
+	 */
+	private applyToolScope(scope: ToolScope) {
+		if (this.registeredScope === scope) return
+		if (scope === 'full') {
+			this.traderToolHandles = traderToolSpecs.map((spec) =>
+				this.registerSpec(spec),
+			)
+		} else {
+			this.traderToolHandles.forEach((handle) => handle.remove())
+			this.traderToolHandles = []
+		}
+		this.mcpLogger.info('Tool scope applied', {
+			from: this.registeredScope,
+			to: scope,
+		})
+		this.registeredScope = scope
 	}
 
 	async init() {
@@ -206,28 +266,18 @@ export class MyMCP extends DurableObject<Env> {
 			})
 			this.mcpLogger.debug('[MyMCP.init] STEP 6: SchwabApiClient ready.')
 
-			// 4. Register tools (this.server.tool calls are synchronous)
+			// 4. Register tools (this.server.tool calls are synchronous).
+			// Trader tools (accounts, orders, transactions) are only exposed to
+			// grants with full scope; everyone else gets market data only.
 			this.mcpLogger.debug('[MyMCP.init] STEP 7A: Calling registerTools...')
-			allToolSpecs.forEach((spec: ToolSpec<any>) => {
-				createTool(this.client, this.server, {
-					name: spec.name,
-					description: spec.description,
-					schema: spec.schema,
-					handler: async (params, c) => {
-						try {
-							const data = await spec.call(c, params)
-							return toolSuccess({
-								data,
-								source: spec.name,
-								message: `Successfully executed ${spec.name}`,
-							})
-						} catch (error) {
-							return toolError(error, { source: spec.name })
-						}
-					},
-				})
+			if (this.registeredScope === undefined) {
+				marketToolSpecs.forEach((spec) => void this.registerSpec(spec))
+				this.registeredScope = 'market'
+			}
+			this.applyToolScope(this.props.toolScope === 'full' ? 'full' : 'market')
+			this.mcpLogger.debug('[MyMCP.init] STEP 7B: registerTools completed.', {
+				toolScope: this.registeredScope,
 			})
-			this.mcpLogger.debug('[MyMCP.init] STEP 7B: registerTools completed.')
 			this.mcpLogger.debug(
 				'[MyMCP.init] STEP 8: MyMCP.init FINISHED SUCCESSFULLY',
 			)

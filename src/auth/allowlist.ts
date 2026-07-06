@@ -19,40 +19,66 @@ export function normalizeInviteCode(raw: unknown): string | undefined {
 }
 
 /**
- * Checks whether a Schwab customer has been enrolled.
+ * Which tool families a customer may use. `market` exposes only market-data
+ * tools (quotes, price history, option chains, ...); `full` adds the trader
+ * tools (accounts, orders, transactions).
+ */
+export type ToolScope = 'full' | 'market'
+
+/**
+ * Anything that isn't explicitly `full` collapses to `market`, so records
+ * written before scopes existed (and malformed values) stay market-only.
+ * Full access must be granted deliberately.
+ */
+export function normalizeToolScope(raw: unknown): ToolScope {
+	return raw === 'full' ? 'full' : 'market'
+}
+
+/**
+ * Returns the enrolled customer's tool scope, or null when not enrolled.
  * Enrollment records live at `allowed:<schwabClientCustomerId>`.
  */
-export async function isCustomerAllowed(
+export async function getEnrolledScope(
 	kv: KV,
 	schwabCustomerId: string,
-): Promise<boolean> {
+): Promise<ToolScope | null> {
 	const value = await kv.get(`${ALLOWLIST_KEY_PREFIX}${schwabCustomerId}`)
-	return value !== null
+	if (value === null) return null
+	try {
+		return normalizeToolScope((JSON.parse(value) as { scope?: string }).scope)
+	} catch {
+		return 'market'
+	}
 }
 
 /**
  * Redeems a one-time invite code (`invite:<code>`) and enrolls the customer.
- * The invite is deleted on success so a leaked code can't be reused.
+ * The invite is deleted on success so a leaked code can't be reused. The
+ * invite value may carry `scope: "full"` to grant trader tools; otherwise
+ * the enrollment is market-only.
  *
- * @returns true if the code was valid and the customer is now enrolled
+ * @returns the enrolled scope, or null if the code was invalid
  */
 export async function enrollWithInviteCode(
 	kv: KV,
 	inviteCode: string,
 	schwabCustomerId: string,
-): Promise<boolean> {
+): Promise<ToolScope | null> {
 	const inviteKey = `${INVITE_KEY_PREFIX}${inviteCode}`
 	const invite = await kv.get(inviteKey)
 	if (invite === null) {
 		allowlistLogger.warn('Invalid or already-used invite code presented', {
 			inviteCode,
 		})
-		return false
+		return null
 	}
 
 	let inviteNote: string | undefined
+	let scope: ToolScope = 'market'
 	try {
-		inviteNote = (JSON.parse(invite) as { note?: string }).note
+		const parsed = JSON.parse(invite) as { note?: string; scope?: string }
+		inviteNote = parsed.note
+		scope = normalizeToolScope(parsed.scope)
 	} catch {
 		// Invite value is free-form; a note is optional.
 	}
@@ -60,6 +86,7 @@ export async function enrollWithInviteCode(
 	const enrollment = {
 		enrolledAt: new Date().toISOString(),
 		inviteCode,
+		scope,
 		...(inviteNote ? { note: inviteNote } : {}),
 	}
 	// Duplicate the record into KV metadata: `wrangler kv key list` returns
@@ -75,7 +102,8 @@ export async function enrollWithInviteCode(
 	allowlistLogger.info('Updated allowlist with newly enrolled customer', {
 		inviteCode,
 		customerIdPrefix: `${schwabCustomerId.slice(0, 8)}...`,
+		scope,
 		...(inviteNote ? { note: inviteNote } : {}),
 	})
-	return true
+	return scope
 }
