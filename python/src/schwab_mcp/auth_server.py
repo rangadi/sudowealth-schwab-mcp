@@ -5,6 +5,7 @@ Only the user's browser talks to this app, over a self-signed cert.
 
 from __future__ import annotations
 
+import logging
 import secrets
 
 from starlette.applications import Starlette
@@ -16,6 +17,8 @@ from .auth.oauth import OAuthError, build_authorize_url
 from .auth.tokens import TokenManager
 from .config import Settings
 
+logger = logging.getLogger("schwab_mcp.auth")
+
 
 def build_auth_app(settings: Settings, tokens: TokenManager) -> Starlette:
     pending_states: set[str] = set()
@@ -23,15 +26,24 @@ def build_auth_app(settings: Settings, tokens: TokenManager) -> Starlette:
     async def authorize(_: Request) -> RedirectResponse:
         state = secrets.token_urlsafe(24)
         pending_states.add(state)
+        logger.info("Issued OAuth state; redirecting browser to Schwab.")
         return RedirectResponse(build_authorize_url(settings, state))
 
     async def callback(request: Request) -> HTMLResponse:
+        # Log the shape of every callback (redacting the code) so a failed login
+        # is always diagnosable from the server side.
+        seen = {k: ("<redacted>" if k == "code" else v) for k, v in request.query_params.items()}
+        logger.info("Callback received: %s", seen)
+
         error = request.query_params.get("error")
         if error:
-            return _page(f"Schwab returned an error: {error}", ok=False)
+            desc = request.query_params.get("error_description", "")
+            logger.warning("Schwab returned error=%s %s", error, desc)
+            return _page(f"Schwab returned an error: {error} {desc}", ok=False)
 
         state = request.query_params.get("state")
         if not state or state not in pending_states:
+            logger.warning("Callback state missing or unknown (server restart?).")
             return _page("Invalid or expired state — start again at /authorize.", ok=False)
         pending_states.discard(state)
 
@@ -42,8 +54,13 @@ def build_auth_app(settings: Settings, tokens: TokenManager) -> Starlette:
         try:
             await tokens.complete_login(code)
         except OAuthError as exc:
+            logger.warning("Token exchange failed: %s", exc)
             return _page(f"Token exchange failed: {exc}", ok=False)
+        except Exception:
+            logger.exception("Unexpected error completing login.")
+            return _page("Unexpected error completing login (see server log).", ok=False)
 
+        logger.info("Login complete; tokens stored.")
         return _page("Logged in to Schwab. You can close this tab.", ok=True)
 
     return Starlette(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 
 import httpx
 import uvicorn
@@ -18,6 +19,10 @@ from .tls import ensure_cert
 
 async def _serve() -> None:
     settings = Settings()
+    logging.basicConfig(
+        level=settings.log_level.upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
     oauth_http = httpx.AsyncClient(timeout=30)
     market_http = httpx.AsyncClient(base_url=MARKET_DATA_BASE_URL, timeout=30)
