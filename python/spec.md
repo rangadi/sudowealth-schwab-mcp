@@ -264,14 +264,17 @@ they live in the keyring after `login`.
 
 ## 9. Response models — generate, don't hand-write
 
-Run `datamodel-code-generator` against `../openapi/market-data-openapi-spec.json`
-to emit Pydantic v2 models into `models/market.py`. A `make codegen` /
-`uv run` script re-generates on spec changes.
+**Decided (Phase 1): responses stay raw JSON.** Full generated Pydantic response
+models were evaluated and deliberately *not* applied — Schwab's market-data
+payloads are large and full of optional/variant fields, so strict validation
+would risk rejecting valid live data for no wire benefit (the MCP client
+consumes JSON directly). If token cost becomes an issue, the value-add is
+*targeted trimming* of verbose tools (quotes, option chains), which is a
+hand-shaped product decision, not mechanical codegen.
 
-For Phase 1 we can start **untyped on responses** (return Schwab's JSON straight
-through — it's already JSON, and MCP transports JSON fine) and layer generated
-response models in where they add value (e.g. trimming/reshaping quotes). This
-keeps the first milestone tiny; typing is additive.
+The codegen path remains available if needed: run `datamodel-code-generator`
+against `../openapi/market-data-openapi-spec.json` to emit Pydantic v2 models
+into `models/market.py`.
 
 **Tool inputs stay hand-written** with rich descriptions and `Literal` enums
 (e.g. `periodType`, `frequencyType`, movers `sort`) taken from the spec's enums,
@@ -281,28 +284,23 @@ so the model-facing schema is high quality.
 
 ## 10. Milestones / plan
 
-**M0 — Skeleton (½ day)**
-`uv init`, `pyproject.toml`, a plain-HTTP server exposing FastMCP at `/mcp` with
-one trivial `status` tool. Verify it connects in MCP Inspector over
-`http://127.0.0.1:8000/mcp`.
+**Phase 1 is complete** and verified end-to-end against live Schwab (OAuth login,
+token persistence + refresh, all 10 market tools via MCP Inspector).
 
-**M1 — OAuth login (1 day)**
-`config.py`, `tls.py` (self-signed cert), `TokenStore`, the HTTPS `/authorize` +
-`/callback` routes, token exchange. Manually verify: browse to `/authorize`, log
-in, tokens persist, refresh works.
+**M0 — Skeleton** ✅ — plain-HTTP FastMCP server at `/mcp` with a `status` tool.
 
-**M2 — Market data client + tools (1–1.5 days)**
-`SchwabClient` (httpx + lazy refresh), the 10 market tools in `tools/market.py`
-with typed inputs. Wire tool registration in `server.py`. Verify each tool via
-Inspector against live Schwab.
+**M1 — OAuth login** ✅ — `config.py`, `tls.py` (self-signed cert), token store
+(keyring + `0600` file fallback), HTTPS `/authorize` + `/callback`, token
+exchange + lazy refresh. Plus `schwab-mcp-login` manual paste-the-code flow.
 
-**M3 — Response models + polish (½–1 day)**
-Generate `models/market.py`, apply where useful, error mapping, structured
-logging to stderr, `README.md` (setup + how to point an MCP client at
-`http://127.0.0.1:8000/mcp` and log in at `https://127.0.0.1:8182/authorize`).
+**M2 — Market data client + tools** ✅ — `SchwabClient` (httpx + lazy refresh),
+all 10 market tools with typed inputs, wired in `server.py`.
 
-**M4 — Tests & CI (½ day)**
-`pytest` + `respx` for client/tool logic and token refresh; ruff in CI.
+**M3 — Polish** ✅ — responses left as raw JSON (see §9), error mapping,
+`/authorize`+`/callback` logging via `LOG_LEVEL`, and `README.md`.
+
+**M4 — Tests & CI** ✅ — 27 `pytest`/`respx` tests (client, tools, token refresh,
+OAuth, TLS, manual login); `python-ci` GitHub Action (ruff + format + pytest).
 
 **M5 — Phase 2 (later, opt-in)**
 Trader tools behind `TRADER_TOOLS=true`, `scope=readonly` vs full, optional
